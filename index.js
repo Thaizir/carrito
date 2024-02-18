@@ -134,6 +134,7 @@ app.post('/agregar-producto', async (req, res) => {
       res.send('Producto agregado correctamente');
     }
   } catch (err) {
+    console.log('Aqui voy')
     res.status(500).send(err);
   }
 })
@@ -147,6 +148,7 @@ app.post('/agregar-orden', async (req, res) => {
       let precioTotal = 0;
       // Recupero el id del producto y calculo el precio 
       for (let i = 0; i < recuperarProductos.length; i++) {
+
         let itemComprar = await obtenerItem(recuperarProductos[i].producto_id, recuperarProductos[i].cantidad);
         precioTotal += itemComprar.precio * recuperarProductos[i].cantidad;
       }
@@ -158,21 +160,20 @@ app.post('/agregar-orden', async (req, res) => {
   }
 })
 
-// Metodo PUT para editar el pedido
-// http://localhost:3000/eliminar-producto-pedido/1?pedido_id=1
 
+
+// http://localhost:3000/eliminar-producto-pedido/1?pedido_id=1
 app.delete('/eliminar-producto-pedido/:producto_id', async (req, res) => {
   try {
     const producto_id = req.params.producto_id;
     const pedido_id = req.query.pedido_id;
 
     //recupero el producto a eliminar para sumar su cantidad al stock
-    let [productoCantidad] = await (await mySQL.connectDataBase()).execute('SELECT * FROM productos_pedidos WHERE producto_id = ? AND pedido_id = ?', [producto_id, pedido_id]);
-    let cantidadEliminar = productoCantidad[0].cantidad;
+    let [productocantidad] = await (await mySQL.connectDataBase()).execute('SELECT * FROM productos_pedidos WHERE producto_id = ? AND pedido_id = ?', [producto_id, pedido_id]);
+    let cantidadEliminar = productocantidad[0].cantidad;
 
     // ELimino el producto
     let [productoEliminar] = await (await mySQL.connectDataBase()).execute('DELETE FROM productos_pedidos WHERE producto_id = ? AND pedido_id = ?', [producto_id, pedido_id]);
-
 
     const [recuperarProductos] = await (await mySQL.connectDataBase()).execute('SELECT * FROM productos_pedidos WHERE pedido_id = ?', [req.query.pedido_id]);
     // Ajustar precio del pedido ELIMINO LA ORDEN
@@ -220,12 +221,12 @@ app.put('/actualizar-orden', async (req, res) => {
   try {
     // Revisamos el stock disponible 
     const [recuperarStock] = await (await mySQL.connectDataBase()).execute('SELECT * FROM productos WHERE producto_id = ? AND stock > 0', [req.body.producto_id]);
-
     if (recuperarStock[0].stock < req.body.cantidad) {
       res.send('No hay stock disponible, stock disponible: ' + recuperarStock[0].stock);
     } else {
       let itemAgregar = [req.body.pedido_id, req.body.producto_id, req.body.cantidad];
       // Con esto agrego el item al pedido
+
       let [itemNuevo] = await (await mySQL.connectDataBase()).execute('INSERT INTO productos_pedidos (pedido_id, producto_id, cantidad) VALUES (?,?,?)', itemAgregar);
 
       if (itemNuevo.length === 0) {
@@ -272,8 +273,6 @@ app.put('/editar-cantidad', async (req, res) => {
         res.send('No hay stock disponible, stock disponible:' + recuperarStock[0].stock);
 
       } else {
-
-        console.log('Inicio el proceso');
         const values = [req.body.cantidad, req.body.pedido_id, req.body.producto_id];
 
         // Recuperdo el item que debo modificar la cantidad
@@ -286,15 +285,11 @@ app.put('/editar-cantidad', async (req, res) => {
 
         } else {
           // Aquí modificamos la cantidad del item si lo consigue
-          await (await mySQL.connectDataBase()).execute('UPDATE productos_pedidos SET cantidad =? WHERE pedido_id =? AND producto_id=?', values);
-          console.log('Se modificó la cantidad');
-
+          await (await mySQL.connectDataBase()).execute('UPDATE productos_pedidos SET cantidad =? WHERE pedido_id =? AND producto_id=?', values)
           // Luego tenemos que ajustar el precio total en la orden, vuevlo a recuperar los productos del pedido
           const [recuperarProductosOrden] = await (await mySQL.connectDataBase()).execute('SELECT * FROM productos_pedidos WHERE pedido_id = ?', [req.body.pedido_id]);
 
-
           let precioTotal = 0;
-          console.log(precioTotal)
 
           for (let i = 0; i < recuperarProductosOrden.length; i++) {
             let itemsOrden = await obtenerItem(recuperarProductosOrden[i].producto_id, recuperarProductosOrden[i].cantidad);
@@ -307,7 +302,6 @@ app.put('/editar-cantidad', async (req, res) => {
       }
     }
   } catch (err) {
-    console.log(err)
     res.status(500).send(err);
   }
 
@@ -316,18 +310,30 @@ app.put('/editar-cantidad', async (req, res) => {
 
 app.get('/carrito-compra/:pedido_id', async (req, res) => {
   try {
-
     const [recuperarProducto] = await (await mySQL.connectDataBase()).execute('SELECT * FROM productos_pedidos WHERE pedido_id = ?', [req.params.pedido_id]);
+
     if (recuperarProducto.length === 0) {
       res.status(404).send('Pedido no encontrado');
     } else {
-      res.send(recuperarProducto);
+      const carrito = recuperarProducto.reduce((acumulador, item) => {
+        let productoExistente = acumulador.productos.find(p => p.producto_id === item.producto_id);
+        if (productoExistente) {
+          productoExistente.cantidad += item.cantidad;
+        } else {
+          acumulador.productos.push({
+            producto_id: item.producto_id,
+            cantidad: item.cantidad
+          });
+        }
+        return acumulador; // Añade este retorno al final de cada iteración
+      }, { productos: [] }); // Agrega el objeto inicial para el acumulador
+
+      res.send(carrito);
     }
   } catch (err) {
-    res.sendStatus(500).send(err)
+    res.status(500).send(err);
   }
-})
-
+});
 
 app.listen(3000, () => {
   console.log('Server UP')
