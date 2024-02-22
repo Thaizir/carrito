@@ -1,30 +1,13 @@
-// Configurar con ExpressJS el servidor de la app
-
 const express = require('express');
-const bcryptjs = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const SECRET = "49efe9d4fad425ca754ed342752be6d79850c46feba6f1e6eb96af7925dc5274"// openssl rand -hex 32 se debe dejar en un .env fuera
-
-
-
-const app = express();
-app.use(express.urlencoded({ extended: false }));
-
-// Obtener el módulo connection que contiene nuestra conexión para hacer queries
 const mySQL = require('./connection');
+const { hashPassword, generateAccessToken, validateToken } = require('./auth');
 
-// Configurar nuestra API para que trabaje en formato JSON
-app.use(express.json());
+const router = express.Router();
 
-// Definir un método para hashear la constraseña cuando creemos los vendedores.
-async function hashPassword(pw) {
-  let pwHashed = await bcryptjs.hash(pw, 10)
-  return pwHashed
-}
+router.use(express.urlencoded({ extended: false }));
+router.use(express.json());
 
-// Definir un método POST para agregar vendedores.
-app.post('/vendedor/create', async (req, res) => {
-  console.log('Iniciando registro de vendedor...');
+router.post('/vendedor/create', async (req, res) => {
   try {
     let newPW = await hashPassword(req.body.password) // Hasheamos contraseña
     const nuevoVenderdor = [req.body.vendedor_id, req.body.email, newPW, req.body.nombre, req.body.ubicacion];
@@ -38,36 +21,9 @@ app.post('/vendedor/create', async (req, res) => {
     res.status(500).send(err);
     console.log(err)
   }
-})
+});
 
-
-
-// Definir un método POST (con autorizacion JWT) para que los vendedores puedan agregar sus productos
-// Creamos el token
-function generateAccessToken(user) {
-  return jwt.sign(user, SECRET, { expiresIn: '5m' });
-}
-
-// Creamos función para validar el token
-
-function validateToken(req, res, next) {
-  const accessToken = req.headers['authorization'];
-  if (!accessToken) {
-    res.send('Access denied');
-  } else {
-    jwt.verify(accessToken, SECRET, (err, token) => {
-      if (err) {
-        res.send('Access denied: Token invalid or expired');
-      } else {
-        next();
-      }
-    })
-  }
-}
-
-// Creamos login
-app.post('/login', async (req, res) => {
-
+router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   const user = { email, password };
 
@@ -87,13 +43,9 @@ app.post('/login', async (req, res) => {
       });
     }
   }
+});
 
-})
-
-
-// Ruta para agregar items protegida
-
-app.post('/productos/create', validateToken, async (req, res) => {
+router.post('/productos/create', validateToken, async (req, res) => {
   try {
     const nuevoProducto = [req.body.producto_id, req.body.nombre, req.body.descripcion, req.body.precio, req.body.stock, req.body.vendedor_id];
     const resultado = await (await mySQL.connectDataBase()).execute('INSERT INTO productos (producto_id, nombre, descripcion, precio, stock, vendedor_id) VALUES (?, ?, ?, ?, ?, ?)', nuevoProducto);
@@ -105,11 +57,9 @@ app.post('/productos/create', validateToken, async (req, res) => {
   } catch (err) {
     res.sendStatus(500).send(err)
   }
-})
+});
 
-
-// Definir un método GET para mostar todos los productos disponibles
-app.get('/productos', async (req, res) => {
+router.get('/productos', async (req, res) => {
   try {
     const [resultado] = await (await mySQL.connectDataBase()).execute('SELECT productos.*, vendedores.nombre as vendedor FROM productos JOIN vendedores ON vendedores.vendedor_id = productos.vendedor_id');
     if (resultado.length === 0) {
@@ -117,14 +67,12 @@ app.get('/productos', async (req, res) => {
     } else {
       res.json(resultado);
     }
-
   } catch (err) {
     res.status(500).send(err);
   }
-})
+});
 
-
-app.post('/agregar-producto', async (req, res) => {
+router.post('/agregar-producto', async (req, res) => {
   try {
     const productoPedido = [req.body.pedido_id, req.body.producto_id, req.body.cantidad];
     let [resultado] = await (await mySQL.connectDataBase()).execute('INSERT INTO productos_pedidos (pedido_id, producto_id, cantidad) VALUES (?, ?, ?)', productoPedido);
@@ -134,12 +82,12 @@ app.post('/agregar-producto', async (req, res) => {
       res.send('Producto agregado correctamente');
     }
   } catch (err) {
-    console.log('Aqui voy')
+
     res.status(500).send(err);
   }
-})
+});
 
-app.post('/agregar-orden', async (req, res) => {
+router.post('/agregar-orden', async (req, res) => {
   try {
     const [recuperarProductos] = await (await mySQL.connectDataBase()).execute('SELECT * FROM productos_pedidos WHERE pedido_id = ?', [req.body.pedido_id]);
     if (recuperarProductos.length === 0) {
@@ -158,12 +106,9 @@ app.post('/agregar-orden', async (req, res) => {
   } catch (err) {
     res.status(500).send(err);
   }
-})
+});
 
-
-
-// http://localhost:3000/eliminar-producto-pedido/1?pedido_id=1
-app.delete('/eliminar-producto-pedido/:producto_id', async (req, res) => {
+router.delete('/eliminar-producto-pedido/:producto_id', async (req, res) => {
   try {
     const producto_id = req.params.producto_id;
     const pedido_id = req.query.pedido_id;
@@ -200,64 +145,10 @@ app.delete('/eliminar-producto-pedido/:producto_id', async (req, res) => {
   } catch (err) {
     res.status(500).send(err);
   }
-})
-
-
-// Funcion que me obtiene el item lo quita del stock
-async function obtenerItem(producto_id, cantidadRemover) {
-
-  let [resultado] = await (await mySQL.connectDataBase()).execute('SELECT * FROM productos WHERE producto_id = ? AND stock > 0', [producto_id]);
-  if (resultado.length > 0) {
-    await (await mySQL.connectDataBase()).execute('UPDATE productos SET stock = stock - ? WHERE producto_id = ?', [cantidadRemover, producto_id]);
-    let producto = resultado[0];
-    return producto;
-  } else {
-    return { 'Error': 'No hay stock suficiente' };
-  }
-}
-
-// Definir metodo put para agregar items como en /agregar-producto pero debo hacerle update al mismo ID
-app.put('/actualizar-orden', async (req, res) => {
-  try {
-    // Revisamos el stock disponible 
-    const [recuperarStock] = await (await mySQL.connectDataBase()).execute('SELECT * FROM productos WHERE producto_id = ? AND stock > 0', [req.body.producto_id]);
-    if (recuperarStock[0].stock < req.body.cantidad) {
-      res.send('No hay stock disponible, stock disponible: ' + recuperarStock[0].stock);
-    } else {
-      let itemAgregar = [req.body.pedido_id, req.body.producto_id, req.body.cantidad];
-      // Con esto agrego el item al pedido
-
-      let [itemNuevo] = await (await mySQL.connectDataBase()).execute('INSERT INTO productos_pedidos (pedido_id, producto_id, cantidad) VALUES (?,?,?)', itemAgregar);
-
-      if (itemNuevo.length === 0) {
-        res.send('No se pudo agregar el producto');
-      } else {
-        // Elimino el stock de la cantidad del nuevo producto ya agregado
-        await (await mySQL.connectDataBase()).execute('UPDATE productos SET stock = stock - ? WHERE producto_id = ?', [req.body.cantidad, req.body.producto_id]);
-
-        // Recupero el id de los productos del pedido y calculo el precio nuevo  
-        const [recuperarProductosOrden] = await (await mySQL.connectDataBase()).execute('SELECT * FROM productos_pedidos WHERE pedido_id = ?', [req.body.pedido_id]);
-
-        let precioTotal = 0;
-        for (let i = 0; i < recuperarProductosOrden.length; i++) {
-          let itemOrden = await obtenerItem(recuperarProductosOrden[i].producto_id, recuperarProductosOrden[i].cantidad);
-          precioTotal += itemOrden.precio * recuperarProductosOrden[i].cantidad;
-        }
-
-        // Agregamos la orden con el nuevo precio total
-        await (await mySQL.connectDataBase()).execute('UPDATE orden SET total = ? WHERE pedido_id = ?', [precioTotal, req.body.pedido_id]);
-        res.send('Su orden ha sido actualizada con éxito');
-      }
-    }
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Error interno del servidor');
-  }
 });
 
-// Definir metodo put para cambiar la cantidad de items de una orden
 
-app.put('/editar-cantidad', async (req, res) => {
+router.put('/editar-cantidad', async (req, res) => {
   try {
 
     // Revisamos el stock disponible 
@@ -304,39 +195,21 @@ app.put('/editar-cantidad', async (req, res) => {
   } catch (err) {
     res.status(500).send(err);
   }
+});
 
-})
-// Definir un método GET para mostar el carrito de comprar
-
-app.get('/carrito-compra/:pedido_id', async (req, res) => {
+router.get('/carrito-compra/:pedido_id', async (req, res) => {
   try {
     const [recuperarProducto] = await (await mySQL.connectDataBase()).execute('SELECT * FROM productos_pedidos WHERE pedido_id = ?', [req.params.pedido_id]);
 
     if (recuperarProducto.length === 0) {
       res.status(404).send('Pedido no encontrado');
     } else {
-      const carrito = recuperarProducto.reduce((acumulador, item) => {
-        let productoExistente = acumulador.productos.find(p => p.producto_id === item.producto_id);
-        if (productoExistente) {
-          productoExistente.cantidad += item.cantidad;
-        } else {
-          acumulador.productos.push({
-            producto_id: item.producto_id,
-            cantidad: item.cantidad
-          });
-        }
-        return acumulador; // Añade este retorno al final de cada iteración
-      }, { productos: [] }); // Agrega el objeto inicial para el acumulador
-
-      res.send(carrito);
+      res.send(recuperarProducto);
     }
   } catch (err) {
     res.status(500).send(err);
   }
 });
 
-app.listen(3000, () => {
-  console.log('Server UP')
-});
 
-// Notas, solo hay un error y es en la funcion obtener item que remueve elementos extra del stock.
+module.exports = router;
