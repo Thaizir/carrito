@@ -1,12 +1,16 @@
 const express = require('express');
-const cors = require('cors');
-const routes = require('./routes');
-
+const routes = require('./router/routes');
+const users = require('./database/users')
+const bodyParser = require('body-parser');
+const mySQL = require('./database/connection');
 const app = express();
+app.use(routes);
 
-app.use(cors());
-app.use('/api', routes); // Assuming you want your routes under '/api'
 
-app.listen(3001, () => {
+
+
+
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
     console.log('Server UP');
 });
