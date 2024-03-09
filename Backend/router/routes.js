@@ -75,46 +75,4 @@ router.post('/api/user/login', async (req, res) => {
   }
 });
 
-// Comprar
-// Refactorizar
-router.post('/api/products/buy', validateToken, async (req, res) => {
-  try {
-
-    const userEmail = req.user.user;
-    const buyer = await getUsersByEmail(userEmail);
-    //  const productsIds = req.body.products.map((product) => product.id);
-    //  const productQuantity = req.body.products.map((product) => product.quantity);
-    const itemBuy = await getProducts(productsIds);
-    console.log(itemBuy)
-    let totalPrice = 0;
-
-    for (let i = 0; i < itemBuy.length; i++) {
-      totalPrice += parseFloat(itemBuy[i].price) * productQuantity[i];
-    }
-
-    const newOrder = {
-      "status": 'pending',
-      "products": itemBuy,
-      "totalPrice": totalPrice,
-      "userID": buyer[0].userid
-    }
-    console.log(newOrder);
-    //Agrego la orden a la base de datos
-    const order = await createOrder(newOrder);
-
-    //Traigo todas las ordenes por usuario
-
-    const userOrders = await getOrdersByUser(buyer[0].userid);
-
-    // Editar el usuario para agregar la nueva orden en el historial de compras
-
-    const updatedUser = await updateUserOders(buyer[0].userid, userOrders);
-    // 
-    res.send('Orden creada con exito');
-  } catch (err) {
-    console.log(err);
-    res.status(500).send('Error haciendo la compra');
-  }
-})
-
 module.exports = router;
